@@ -424,7 +424,7 @@ app.listen(PORT, async () => {
   console.log('='.repeat(60));
   console.log(`📍 Server: http://localhost:${PORT}`);
   console.log(`📊 Database: MongoDB (niyzo)`);
-  console.log(`📬 Connection: ${MONGODB_URI}`);
+  console.log(`📬 Connection: ${MONGODB_URI.replace(/\/\/.*:.*@/, '//***:***@')}`);
   console.log('='.repeat(60) + '\n');
 });
 

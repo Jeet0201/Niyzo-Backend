@@ -13,21 +13,49 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
-// MongoDB connection with fallback
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/YouthSolve';
+// MongoDB connection - Local MongoDB only
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/niyzo';
 let useInMemory = false;
 
 mongoose.set('strictQuery', true);
+
+// Configure MongoDB connection
+mongoose.connection.on('connecting', () => {
+  console.log('🔄 Connecting to MongoDB...');
+});
+
+mongoose.connection.on('connected', () => {
+  console.log('✅ MongoDB Connected');
+  console.log(`   URI: ${MONGODB_URI}`);
+  console.log(`   Database: niyzo`);
+  console.log(`   Status: Ready for data operations`);
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err.message);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('⚠️  MongoDB disconnected');
+});
+
 mongoose
-  .connect(MONGODB_URI)
+  .connect(MONGODB_URI, {
+    maxPoolSize: 10,
+    minPoolSize: 2,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  })
   .then(() => {
-    console.log('Connected to MongoDB');
     useInMemory = false;
   })
   .catch((err) => {
-    console.warn('MongoDB connection failed:', err.message);
-    console.log('Falling back to in-memory storage for development');
-    useInMemory = true;
+    console.error('❌ MongoDB connection failed:', err.message);
+    console.log('⚠️  ERROR: Cannot connect to local MongoDB at', MONGODB_URI);
+    console.log('   Make sure MongoDB is running:');
+    console.log('   Windows: mongod');
+    console.log('   Or: net start MongoDB');
+    process.exit(1);  // Exit if local MongoDB is not available
   });
 
 // Schemas and Models
@@ -282,7 +310,13 @@ app.post('/api/questions', validateContactField, async (req, res) => {
       return res.status(400).json({ message: 'studentName, subject and question are required' });
     }
     
+    console.log('📝 Received new question submission:');
+    console.log(`   Student: ${studentName}`);
+    console.log(`   Contact: ${contact} (${contactType})`);
+    console.log(`   Subject: ${subject}`);
+    
     if (useInMemory) {
+      console.log('⚠️  Using in-memory storage (MongoDB not connected)');
       const doc = addInMemoryQuestion({
         studentName,
         studentEmail,
@@ -305,10 +339,14 @@ app.post('/api/questions', validateContactField, async (req, res) => {
         status: assignedMentorId ? 'Assigned' : 'New',
         assignedMentorId: assignedMentorId || undefined,
       });
+      console.log('✅ Question saved to MongoDB:');
+      console.log(`   ID: ${doc._id}`);
+      console.log(`   Database: niyzo`);
+      console.log(`   Collection: questions`);
       res.status(201).json(doc);
     }
   } catch (e) {
-    console.error('Create question error:', e);
+    console.error('❌ Create question error:', e.message);
     res.status(500).json({ message: 'Failed to create question' });
   }
 });
@@ -425,7 +463,13 @@ app.listen(PORT, async () => {
   try {
     await seedMentors();
   } catch {}
-  console.log(`API server running on http://localhost:${PORT}`);
+  console.log('\n' + '='.repeat(60));
+  console.log('🚀 API SERVER STARTED');
+  console.log('='.repeat(60));
+  console.log(`📍 Server: http://localhost:${PORT}`);
+  console.log(`📊 Database: MongoDB (niyzo)`);
+  console.log(`📬 Connection: ${MONGODB_URI}`);
+  console.log('='.repeat(60) + '\n');
 });
 
 // Mentor CRUD

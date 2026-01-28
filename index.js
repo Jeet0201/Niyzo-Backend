@@ -143,6 +143,14 @@ const updateInMemoryQuestion = (id, updates) => {
   }
   return null;
 };
+const deleteInMemoryQuestion = (id) => {
+  const index = inMemoryQuestions.findIndex(q => q._id === id);
+  if (index !== -1) {
+    inMemoryQuestions.splice(index, 1);
+    return true;
+  }
+  return false;
+};
 const updateInMemoryMentor = (id, updates) => {
   const index = inMemoryMentors.findIndex(m => m._id === id);
   if (index !== -1) {
@@ -314,20 +322,42 @@ async function seedMentors() {
 // Public: student submits a new question
 app.post('/api/questions', async (req, res) => {
   try {
-    const { studentName, contact, subject, question, assignedMentorId } = req.body || {};
+    const { studentName, studentEmail, studentPhone, contact, subject, question, assignedMentorId } = req.body || {};
+    
+    // Required fields validation
     if (!studentName || !subject || !question) {
       return res.status(400).json({ message: 'studentName, subject and question are required' });
+    }
+
+    // CHANGE 2: Student contact field (Email OR Phone) is required
+    if (!studentEmail && !studentPhone) {
+      return res.status(400).json({ 
+        message: 'Student contact is required: please provide either email or phone number' 
+      });
+    }
+
+    // Validate email format if provided
+    if (studentEmail && !studentEmail.match(/.+@.+\..+/)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    // Validate phone format if provided (10 digits)
+    if (studentPhone && !studentPhone.match(/^\d{10}$/)) {
+      return res.status(400).json({ message: 'Phone number must be exactly 10 digits' });
     }
     
     console.log('📝 Received new question submission:');
     console.log(`   Student: ${studentName}`);
     console.log(`   Subject: ${subject}`);
+    console.log(`   Contact: ${studentEmail || studentPhone}`);
     
     if (useInMemory) {
       console.log('⚠️  Using in-memory storage (MongoDB not connected)');
       const doc = addInMemoryQuestion({
         studentName,
-        contact,
+        studentEmail: studentEmail || undefined,
+        studentPhone: studentPhone || undefined,
+        contact, // legacy field
         subject,
         question,
         status: assignedMentorId ? 'Assigned' : 'New',
@@ -337,7 +367,9 @@ app.post('/api/questions', async (req, res) => {
     } else {
       const doc = await Question.create({
         studentName,
-        contact,
+        studentEmail: studentEmail || undefined,
+        studentPhone: studentPhone || undefined,
+        contact, // legacy field
         subject,
         question,
         status: assignedMentorId ? 'Assigned' : 'New',
@@ -425,6 +457,33 @@ app.patch('/api/questions/:id', requireAuth, async (req, res) => {
     }
   } catch (e) {
     res.status(500).json({ message: 'Failed to update question' });
+  }
+});
+
+// Protected: delete question (admin only)
+app.delete('/api/questions/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Validate question ID format
+    if (!id || !id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ message: 'Invalid question ID' });
+    }
+
+    if (useInMemory) {
+      const deleted = deleteInMemoryQuestion(id);
+      if (!deleted) return res.status(404).json({ message: 'Question not found' });
+      console.log(`✅ Question deleted: ${id}`);
+      res.json({ ok: true, message: 'Question deleted successfully' });
+    } else {
+      const deleted = await Question.findByIdAndDelete(id);
+      if (!deleted) return res.status(404).json({ message: 'Question not found' });
+      console.log(`✅ Question deleted from MongoDB: ${id}`);
+      res.json({ ok: true, message: 'Question deleted successfully' });
+    }
+  } catch (e) {
+    console.error('Failed to delete question:', e.message);
+    res.status(500).json({ message: 'Failed to delete question' });
   }
 });
 

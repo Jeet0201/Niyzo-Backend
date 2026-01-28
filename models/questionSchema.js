@@ -1,16 +1,14 @@
 /**
- * UPDATED QUESTION SCHEMA
- * Adds phone field for student contact
+ * QUESTION SCHEMA - Student Contact Required
  * 
- * BREAKING CHANGES: NONE
- * - Existing questions will still work
- * - Phone field is optional (will be null for existing questions)
- * - New questions require phone field
+ * NEW REQUIREMENT: Students must provide Email OR Mobile
+ * - studentEmail: optional but required at API level (if phone not provided)
+ * - studentPhone: optional but required at API level (if email not provided)
+ * - Both are PRIVATE fields - never exposed in public APIs
  * 
- * Key changes:
- * - Added studentPhone field (10 digits, validated)
- * - Private fields: studentEmail, studentPhone
- * - Public fields: all except studentEmail and studentPhone
+ * BACKWARD COMPATIBILITY:
+ * - Existing questions with only 'contact' field will still load
+ * - New questions require studentEmail or studentPhone
  */
 
 const mongoose = require('mongoose');
@@ -27,15 +25,19 @@ const questionSchema = new mongoose.Schema(
       type: String,
       trim: true,
       lowercase: true,
-      // Optional for backward compatibility with existing data
-      // Required for new questions (validated at API level)
+      sparse: true,
+      match: [/.+@.+\..+/, 'Please provide a valid email address']
     },
     studentPhone: { 
       type: String,
+      trim: true,
       // Stores digits only (e.g., "1234567890")
-      match: /^\d{10}$/,
-      // Optional for backward compatibility
-      // Required for new questions (validated at API level)
+      match: [/^\d{10}$/, 'Phone must be exactly 10 digits']
+    },
+    // Legacy field - deprecated but kept for backward compatibility
+    contact: {
+      type: String,
+      trim: true
     },
 
     // Question Details (PUBLIC)

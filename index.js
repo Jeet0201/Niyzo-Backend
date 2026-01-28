@@ -21,50 +21,89 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// MongoDB connection - require production URI; fallback to local only for development
-const MONGODB_URI = process.env.MONGODB_URI ?? (process.env.NODE_ENV === 'production' ? null : 'mongodb://localhost:27017/niyzo');
-let useInMemory = false;
+// MongoDB connection - REQUIRED for all environments (production-grade enforcement)
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const MONGODB_URI = process.env.MONGODB_URI || (NODE_ENV === 'development' ? 'mongodb://localhost:27017/niyzo' : null);
+let mongoConnected = false;
 
 if (!MONGODB_URI) {
-  console.error('❌ MONGODB_URI is not set. In production you must provide a network-accessible MongoDB URI (set MONGODB_URI environment variable).');
-  console.error('   Example: mongodb+srv://<user>:<pass>@cluster0.example.mongodb.net/mydb?retryWrites=true&w=majority');
+  console.error('═══════════════════════════════════════════════════════════════════');
+  console.error('❌ CRITICAL: MONGODB_URI environment variable is not set');
+  console.error('═══════════════════════════════════════════════════════════════════');
+  console.error('');
+  console.error('PRODUCTION ENVIRONMENT DETECTED - Database is REQUIRED');
+  console.error('');
+  console.error('You must set MONGODB_URI before the server can start.');
+  console.error('');
+  console.error('Example for MongoDB Atlas (Cloud):');
+  console.error('  MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/niyzo?retryWrites=true&w=majority');
+  console.error('');
+  console.error('Setup Instructions:');
+  console.error('  1. Sign up for MongoDB Atlas: https://www.mongodb.com/cloud/atlas');
+  console.error('  2. Create a free cluster');
+  console.error('  3. Get your connection string');
+  console.error('  4. Set MONGODB_URI in your platform environment variables (Render.com):');
+  console.error('     - Go to Settings > Environment Variables');
+  console.error('     - Add MONGODB_URI with your connection string');
+  console.error('  5. Redeploy your application');
+  console.error('');
+  console.error('═══════════════════════════════════════════════════════════════════');
   process.exit(1);
 }
 
 mongoose.set('strictQuery', true);
 
-// Configure MongoDB connection
+// Configure MongoDB connection with strict error handling
 mongoose.connection.on('connecting', () => {
   console.log('🔄 Connecting to MongoDB...');
 });
 
 mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err.message);
+  mongoConnected = false;
 });
 
 mongoose.connection.on('disconnected', () => {
   console.log('⚠️  MongoDB disconnected');
+  mongoConnected = false;
 });
 
+// Strict connection enforcement - no fallback to in-memory
 mongoose
   .connect(MONGODB_URI, {
     maxPoolSize: 10,
     minPoolSize: 2,
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
+    retryWrites: true,
   })
   .then(() => {
-    useInMemory = false;
-    console.log('✅ MongoDB Connected');
-    console.log(`   URI: ${MONGODB_URI}`);
+    mongoConnected = true;
+    console.log('✅ MongoDB Connected Successfully');
+    console.log(`   URI: ${MONGODB_URI.replace(/\/\/.*:.*@/, '//***:***@')}`);
     console.log(`   Database: niyzo`);
     console.log(`   Status: Ready for data operations`);
+    console.log(`   Environment: ${NODE_ENV.toUpperCase()}`);
+    console.log(`   Data Persistence: ENABLED - All data is permanently saved`);
   })
   .catch((err) => {
-    console.error('❌ MongoDB connection failed:', err.message);
-    console.error('   Tried URI:', MONGODB_URI);
-    console.warn('   ⚠️  Continuing with in-memory storage instead...');
-    useInMemory = true;
+    console.error('');
+    console.error('═══════════════════════════════════════════════════════════════════');
+    console.error('❌ FATAL: MongoDB Connection Failed');
+    console.error('═══════════════════════════════════════════════════════════════════');
+    console.error(`Error: ${err.message}`);
+    console.error(`Attempted URI: ${MONGODB_URI.replace(/\/\/.*:.*@/, '//***:***@')}`);
+    console.error('');
+    console.error('Possible causes:');
+    console.error('  1. Connection string is invalid');
+    console.error('  2. MongoDB database is not accessible');
+    console.error('  3. Network connectivity issue');
+    console.error('  4. Authentication failed');
+    console.error('  5. Database server is down');
+    console.error('');
+    console.error('NO IN-MEMORY FALLBACK - Server will not start without valid database');
+    console.error('═══════════════════════════════════════════════════════════════════');
+    process.exit(1);
   });
 
 // Schemas and Models
@@ -116,64 +155,11 @@ const Professor = mongoose.model('Professor', professorSchema);
 const Mentor = mongoose.model('Mentor', mentorSchema);
 const Question = mongoose.model('Question', questionSchema);
 
-// In-memory storage fallback
-let inMemoryProfessors = [];
-let inMemoryMentors = [];
-let inMemoryQuestions = [];
-let nextId = 1;
+// Production-grade data persistence: MongoDB only
+// No in-memory storage, no fallback behavior
+console.log('📦 Database Models: Professor, Mentor, Question');
 
-// Helper functions for in-memory operations
-const getInMemoryMentors = () => inMemoryMentors;
-const getInMemoryQuestions = () => inMemoryQuestions;
-const addInMemoryMentor = (mentor) => {
-  const newMentor = { ...mentor, _id: (nextId++).toString(), createdAt: new Date(), updatedAt: new Date() };
-  inMemoryMentors.push(newMentor);
-  return newMentor;
-};
-const addInMemoryQuestion = (question) => {
-  const newQuestion = { ...question, _id: (nextId++).toString(), createdAt: new Date(), updatedAt: new Date() };
-  inMemoryQuestions.push(newQuestion);
-  return newQuestion;
-};
-const updateInMemoryQuestion = (id, updates) => {
-  const index = inMemoryQuestions.findIndex(q => q._id === id);
-  if (index !== -1) {
-    inMemoryQuestions[index] = { ...inMemoryQuestions[index], ...updates, updatedAt: new Date() };
-    return inMemoryQuestions[index];
-  }
-  return null;
-};
-const deleteInMemoryQuestion = (id) => {
-  const index = inMemoryQuestions.findIndex(q => q._id === id);
-  if (index !== -1) {
-    inMemoryQuestions.splice(index, 1);
-    return true;
-  }
-  return false;
-};
-const updateInMemoryMentor = (id, updates) => {
-  const index = inMemoryMentors.findIndex(m => m._id === id);
-  if (index !== -1) {
-    inMemoryMentors[index] = { ...inMemoryMentors[index], ...updates, updatedAt: new Date() };
-    return inMemoryMentors[index];
-  }
-  return null;
-};
-const deleteInMemoryMentor = (id) => {
-  const index = inMemoryMentors.findIndex(m => m._id === id);
-  if (index !== -1) {
-    inMemoryMentors.splice(index, 1);
-    return true;
-  }
-  return false;
-};
-const addInMemoryProfessor = (professor) => {
-  const newProf = { ...professor, _id: (nextId++).toString(), createdAt: new Date(), updatedAt: new Date() };
-  inMemoryProfessors.push(newProf);
-  return newProf;
-};
-
-// Mentor signup/registration
+// Mentor signup/registration - MongoDB only
 app.post('/api/mentor/signup', async (req, res) => {
   try {
     const { name, email, password, subject, university } = req.body || {};
@@ -181,53 +167,31 @@ app.post('/api/mentor/signup', async (req, res) => {
       return res.status(400).json({ message: 'Name, email, password, and subject are required' });
     }
     
-    if (useInMemory) {
-      // Check if mentor already exists
-      const exists = inMemoryMentors.find(m => m.email === email);
-      if (exists) {
-        return res.status(400).json({ message: 'Email already registered' });
-      }
-      
-      // Create new mentor
-      const newMentor = {
-        name,
-        email,
-        password,
-        subject,
-        university: university || 'Not specified',
-        status: 'Available',
-        initials: name.split(' ').map(w => w[0]).join('').toUpperCase()
-      };
-      const mentor = addInMemoryMentor(newMentor);
-      console.log('New mentor registered:', mentor.name);
-      return res.status(201).json({ message: 'Signup successful', user: { id: mentor._id, name: mentor.name, email: mentor.email } });
-    } else {
-      // Check if mentor already exists
-      const exists = await Mentor.findOne({ email });
-      if (exists) {
-        return res.status(400).json({ message: 'Email already registered' });
-      }
-      
-      // Create new mentor
-      const mentor = await Mentor.create({
-        name,
-        email,
-        password,
-        subject,
-        university: university || 'Not specified',
-        status: 'Available',
-        initials: name.split(' ').map(w => w[0]).join('').toUpperCase()
-      });
-      console.log('New mentor registered:', mentor.name);
-      return res.status(201).json({ message: 'Signup successful', user: { id: mentor._id, name: mentor.name, email: mentor.email } });
+    // Check if mentor already exists
+    const exists = await Mentor.findOne({ email });
+    if (exists) {
+      return res.status(400).json({ message: 'Email already registered' });
     }
+    
+    // Create new mentor in MongoDB
+    const mentor = await Mentor.create({
+      name,
+      email,
+      password,
+      subject,
+      university: university || 'Not specified',
+      status: 'Available',
+      initials: name.split(' ').map(w => w[0]).join('').toUpperCase()
+    });
+    console.log('✅ New mentor registered:', mentor.name);
+    return res.status(201).json({ message: 'Signup successful', user: { id: mentor._id, name: mentor.name, email: mentor.email } });
   } catch (e) {
     console.error('Signup error:', e);
     res.status(500).json({ message: 'Signup failed: ' + e.message });
   }
 });
 
-// Mentor login
+// Mentor login - MongoDB only
 app.post('/api/mentor/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -235,22 +199,12 @@ app.post('/api/mentor/login', async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
     
-    if (useInMemory) {
-      console.log('Searching for mentor:', email, 'in', inMemoryMentors.length, 'mentors');
-      const mentor = inMemoryMentors.find(m => m.email === email && m.password === password);
-      if (!mentor) {
-        console.log('Mentor not found or password mismatch');
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-      console.log('Mentor found:', mentor.name);
-      return res.json({ token: `mentor-${mentor._id}`, user: { id: mentor._id, name: mentor.name, email: mentor.email, subject: mentor.subject, university: mentor.university, status: mentor.status } });
-    } else {
-      const mentor = await Mentor.findOne({ email });
-      if (!mentor || mentor.password !== password) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-      return res.json({ token: `mentor-${mentor._id}`, user: { id: mentor._id, name: mentor.name, email: mentor.email, subject: mentor.subject, university: mentor.university, status: mentor.status } });
+    const mentor = await Mentor.findOne({ email });
+    if (!mentor || mentor.password !== password) {
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
+    console.log('✅ Mentor login:', mentor.name);
+    return res.json({ token: `mentor-${mentor._id}`, user: { id: mentor._id, name: mentor.name, email: mentor.email, subject: mentor.subject, university: mentor.university, status: mentor.status } });
   } catch (e) {
     console.error('Login error:', e);
     res.status(500).json({ message: 'Login failed: ' + e.message });
@@ -281,42 +235,29 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ message: 'Unauthorized' });
 }
 
-// Seed mentors if collection is empty
+// Seed mentors to MongoDB if collection is empty
 async function seedMentors() {
-  if (useInMemory) {
-    if (inMemoryMentors.length > 0) return;
-    const seed = [
-      { name: 'Dr. Sarah Chen', email: 'sarah@stanford.edu', password: 'password123', subject: 'Computer Science', university: 'Stanford University' },
-      { name: 'Prof. Michael Rodriguez', email: 'michael@mit.edu', password: 'password123', subject: 'Mathematics', university: 'MIT' },
-      { name: 'Dr. Emily Thompson', email: 'emily@harvard.edu', password: 'password123', subject: 'Physics', university: 'Harvard University' },
-      { name: 'Prof. David Kim', email: 'david@caltech.edu', password: 'password123', subject: 'Chemistry', university: 'Caltech' },
-      { name: 'Dr. Lisa Anderson', email: 'lisa@yale.edu', password: 'password123', subject: 'Biology', university: 'Yale University' },
-      { name: 'Prof. James Wilson', email: 'james@berkeley.edu', password: 'password123', subject: 'Engineering', university: 'UC Berkeley' },
-    ].map((m) => ({
-      ...m,
-      initials: m.name.split(' ').map((w) => w[0]).join('').toUpperCase(),
-      status: 'Available',
-    }));
-    seed.forEach(mentor => addInMemoryMentor(mentor));
-    console.log('Seeded in-memory mentors');
-  } else {
-    const count = await Mentor.countDocuments();
-    if (count > 0) return;
-    const seed = [
-      { name: 'Dr. Sarah Chen', email: 'sarah@stanford.edu', password: 'password123', subject: 'Computer Science', university: 'Stanford University' },
-      { name: 'Prof. Michael Rodriguez', email: 'michael@mit.edu', password: 'password123', subject: 'Mathematics', university: 'MIT' },
-      { name: 'Dr. Emily Thompson', email: 'emily@harvard.edu', password: 'password123', subject: 'Physics', university: 'Harvard University' },
-      { name: 'Prof. David Kim', email: 'david@caltech.edu', password: 'password123', subject: 'Chemistry', university: 'Caltech' },
-      { name: 'Dr. Lisa Anderson', email: 'lisa@yale.edu', password: 'password123', subject: 'Biology', university: 'Yale University' },
-      { name: 'Prof. James Wilson', email: 'james@berkeley.edu', password: 'password123', subject: 'Engineering', university: 'UC Berkeley' },
-    ].map((m) => ({
-      ...m,
-      initials: m.name.split(' ').map((w) => w[0]).join('').toUpperCase(),
-      status: 'Available',
-    }));
-    await Mentor.insertMany(seed);
-    console.log('Seeded MongoDB mentors');
+  const count = await Mentor.countDocuments();
+  if (count > 0) {
+    console.log(`✅ Mentors already seeded: ${count} mentors in database`);
+    return;
   }
+  
+  const seed = [
+    { name: 'Dr. Sarah Chen', email: 'sarah@stanford.edu', password: 'password123', subject: 'Computer Science', university: 'Stanford University' },
+    { name: 'Prof. Michael Rodriguez', email: 'michael@mit.edu', password: 'password123', subject: 'Mathematics', university: 'MIT' },
+    { name: 'Dr. Emily Thompson', email: 'emily@harvard.edu', password: 'password123', subject: 'Physics', university: 'Harvard University' },
+    { name: 'Prof. David Kim', email: 'david@caltech.edu', password: 'password123', subject: 'Chemistry', university: 'Caltech' },
+    { name: 'Dr. Lisa Anderson', email: 'lisa@yale.edu', password: 'password123', subject: 'Biology', university: 'Yale University' },
+    { name: 'Prof. James Wilson', email: 'james@berkeley.edu', password: 'password123', subject: 'Engineering', university: 'UC Berkeley' },
+  ].map((m) => ({
+    ...m,
+    initials: m.name.split(' ').map((w) => w[0]).join('').toUpperCase(),
+    status: 'Available',
+  }));
+  
+  await Mentor.insertMany(seed);
+  console.log(`✅ Seeded ${seed.length} mentors to MongoDB database`);
 }
 
 // Public: student submits a new question
@@ -351,70 +292,47 @@ app.post('/api/questions', async (req, res) => {
     console.log(`   Subject: ${subject}`);
     console.log(`   Contact: ${studentEmail || studentPhone}`);
     
-    if (useInMemory) {
-      console.log('⚠️  Using in-memory storage (MongoDB not connected)');
-      const doc = addInMemoryQuestion({
-        studentName,
-        studentEmail: studentEmail || undefined,
-        studentPhone: studentPhone || undefined,
-        contact, // legacy field
-        subject,
-        question,
-        status: assignedMentorId ? 'Assigned' : 'New',
-        assignedMentorId: assignedMentorId || undefined,
-      });
-      res.status(201).json(doc);
-    } else {
-      const doc = await Question.create({
-        studentName,
-        studentEmail: studentEmail || undefined,
-        studentPhone: studentPhone || undefined,
-        contact, // legacy field
-        subject,
-        question,
-        status: assignedMentorId ? 'Assigned' : 'New',
-        assignedMentorId: assignedMentorId || undefined,
-      });
-      console.log('✅ Question saved to MongoDB:');
-      console.log(`   ID: ${doc._id}`);
-      console.log(`   Database: niyzo`);
-      console.log(`   Collection: questions`);
-      res.status(201).json(doc);
-    }
+    // Save to MongoDB only - no in-memory fallback
+    const doc = await Question.create({
+      studentName,
+      studentEmail: studentEmail || undefined,
+      studentPhone: studentPhone || undefined,
+      contact, // legacy field
+      subject,
+      question,
+      status: assignedMentorId ? 'Assigned' : 'New',
+      assignedMentorId: assignedMentorId || undefined,
+    });
+    console.log('✅ Question saved to MongoDB:');
+    console.log(`   ID: ${doc._id}`);
+    console.log(`   Database: niyzo`);
+    console.log(`   Collection: questions`);
+    console.log(`   Data Persistence: PERMANENT`);
+    res.status(201).json(doc);
   } catch (e) {
     console.error('❌ Create question error:', e.message);
     res.status(500).json({ message: 'Failed to create question' });
   }
 });
 
-// Protected: list all questions
+// Protected: list all questions - MongoDB only
 app.get('/api/questions', requireAuth, async (req, res) => {
   try {
-    if (useInMemory) {
-      const list = getInMemoryQuestions().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      res.json(list);
-    } else {
-      const list = await Question.find({}).sort({ createdAt: -1 }).lean();
-      res.json(list);
-    }
+    const list = await Question.find({}).sort({ createdAt: -1 }).lean();
+    res.json(list);
   } catch (e) {
     res.status(500).json({ message: 'Failed to load questions' });
   }
 });
 
-// Mentor: get own questions
+// Mentor: get own questions - MongoDB only
 app.get('/api/mentor/questions', requireAuth, async (req, res) => {
   try {
     const mentorId = req.mentorId;
     if (!mentorId) return res.status(401).json({ message: 'Not a mentor' });
     
-    if (useInMemory) {
-      const questions = inMemoryQuestions.filter(q => q.assignedMentorId === mentorId).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      res.json(questions);
-    } else {
-      const questions = await Question.find({ assignedMentorId: mentorId }).sort({ createdAt: -1 }).lean();
-      res.json(questions);
-    }
+    const questions = await Question.find({ assignedMentorId: mentorId }).sort({ createdAt: -1 }).lean();
+    res.json(questions);
   } catch (e) {
     res.status(500).json({ message: 'Failed to load questions' });
   }
@@ -426,41 +344,29 @@ app.get('/api/mentor/profile', requireAuth, async (req, res) => {
     const mentorId = req.mentorId;
     if (!mentorId) return res.status(401).json({ message: 'Not a mentor' });
     
-    if (useInMemory) {
-      const mentor = inMemoryMentors.find(m => m._id === mentorId);
-      if (!mentor) return res.status(404).json({ message: 'Mentor not found' });
-      res.json(mentor);
-    } else {
-      const mentor = await Mentor.findById(mentorId).lean();
-      if (!mentor) return res.status(404).json({ message: 'Mentor not found' });
-      res.json(mentor);
-    }
+    const mentor = await Mentor.findById(mentorId).lean();
+    if (!mentor) return res.status(404).json({ message: 'Mentor not found' });
+    res.json(mentor);
   } catch (e) {
     res.status(500).json({ message: 'Failed to load profile' });
   }
 });
 
-// Protected: update question status/assignment
+// Protected: update question status/assignment - MongoDB only
 app.patch('/api/questions/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const patch = req.body || {};
     
-    if (useInMemory) {
-      const updated = updateInMemoryQuestion(id, patch);
-      if (!updated) return res.status(404).json({ message: 'Not found' });
-      res.json(updated);
-    } else {
-      const updated = await Question.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();
-      if (!updated) return res.status(404).json({ message: 'Not found' });
-      res.json(updated);
-    }
+    const updated = await Question.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();
+    if (!updated) return res.status(404).json({ message: 'Not found' });
+    res.json(updated);
   } catch (e) {
     res.status(500).json({ message: 'Failed to update question' });
   }
 });
 
-// Protected: delete question (admin only)
+// Protected: delete question (admin only) - MongoDB only
 app.delete('/api/questions/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -470,56 +376,41 @@ app.delete('/api/questions/:id', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'Invalid question ID' });
     }
 
-    if (useInMemory) {
-      const deleted = deleteInMemoryQuestion(id);
-      if (!deleted) return res.status(404).json({ message: 'Question not found' });
-      console.log(`✅ Question deleted: ${id}`);
-      res.json({ ok: true, message: 'Question deleted successfully' });
-    } else {
-      const deleted = await Question.findByIdAndDelete(id);
-      if (!deleted) return res.status(404).json({ message: 'Question not found' });
-      console.log(`✅ Question deleted from MongoDB: ${id}`);
-      res.json({ ok: true, message: 'Question deleted successfully' });
-    }
+    const deleted = await Question.findByIdAndDelete(id);
+    if (!deleted) return res.status(404).json({ message: 'Question not found' });
+    console.log(`✅ Question deleted from MongoDB: ${id}`);
+    res.json({ ok: true, message: 'Question deleted successfully' });
   } catch (e) {
     console.error('Failed to delete question:', e.message);
     res.status(500).json({ message: 'Failed to delete question' });
   }
 });
 
-// Protected: mentors
+// Protected: mentors - MongoDB only
 app.get('/api/mentors', requireAuth, async (req, res) => {
   try {
-    if (useInMemory) {
-      const list = getInMemoryMentors().sort((a, b) => a.name.localeCompare(b.name));
-      res.json(list);
-    } else {
-      const list = await Mentor.find({}).sort({ name: 1 }).lean();
-      res.json(list);
-    }
+    const list = await Mentor.find({}).sort({ name: 1 }).lean();
+    res.json(list);
   } catch (e) {
     res.status(500).json({ message: 'Failed to load mentors' });
   }
 });
 
-// Public mentors list for student selection
+// Public mentors list for student selection - MongoDB only
 app.get('/api/public/mentors', async (req, res) => {
   try {
-    if (useInMemory) {
-      const list = getInMemoryMentors().sort((a, b) => a.name.localeCompare(b.name));
-      res.json(list);
-    } else {
-      const list = await Mentor.find({}).sort({ name: 1 }).lean();
-      res.json(list);
-    }
+    const list = await Mentor.find({}).sort({ name: 1 }).lean();
+    res.json(list);
   } catch (e) {
     res.status(500).json({ message: 'Failed to load mentors' });
   }
 });
 
+// Health check - confirms MongoDB connection is active and data is persisted
 app.get('/api/health', async (req, res) => {
-  const dbOk = useInMemory ? false : mongoose.connection.readyState === 1;
-  res.json({ ok: true, dbOk, useInMemory });
+  const dbOk = mongoConnected && mongoose.connection.readyState === 1;
+  const status = dbOk ? 'MongoDB CONNECTED - Data is being persisted' : 'MongoDB DISCONNECTED - CRITICAL ERROR';
+  res.json({ ok: dbOk, database: status, environment: NODE_ENV.toUpperCase(), dataPersistence: 'MONGODB_ONLY', usingInMemory: false });
 });
 
 app.listen(PORT, async () => {
@@ -554,21 +445,17 @@ app.post('/api/mentors', requireAuth, async (req, res) => {
     if (!name || !subject) return res.status(400).json({ message: 'name and subject are required' });
     const initials = name.split(' ').map((w) => w[0]).join('').toUpperCase();
     
-    if (useInMemory) {
-      const doc = addInMemoryMentor({ name, subject, university, status, initials, email: email || `mentor-${Date.now()}@skillverse.local`, password: password || 'default123' });
-      res.status(201).json(doc);
-    } else {
-      const doc = await Mentor.create({ 
-        name, 
-        subject, 
-        university, 
-        status, 
-        initials,
-        email: email || `mentor-${Date.now()}@skillverse.local`,
-        password: password || 'default123'
-      });
-      res.status(201).json(doc);
-    }
+    // Save to MongoDB only
+    const doc = await Mentor.create({ 
+      name, 
+      subject, 
+      university, 
+      status, 
+      initials,
+      email: email || `mentor-${Date.now()}@skillverse.local`,
+      password: password || 'default123'
+    });
+    res.status(201).json(doc);
   } catch (e) {
     console.error('Create mentor error:', e);
     res.status(500).json({ message: 'Failed to create mentor: ' + e.message });
@@ -583,15 +470,10 @@ app.patch('/api/mentors/:id', requireAuth, async (req, res) => {
       patch.initials = patch.name.split(' ').map((w) => w[0]).join('').toUpperCase();
     }
     
-    if (useInMemory) {
-      const updated = updateInMemoryMentor(id, patch);
-      if (!updated) return res.status(404).json({ message: 'Not found' });
-      res.json(updated);
-    } else {
-      const updated = await Mentor.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();
-      if (!updated) return res.status(404).json({ message: 'Not found' });
-      res.json(updated);
-    }
+    // MongoDB only
+    const updated = await Mentor.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();
+    if (!updated) return res.status(404).json({ message: 'Not found' });
+    res.json(updated);
   } catch (e) {
     res.status(500).json({ message: 'Failed to update mentor' });
   }
@@ -601,58 +483,32 @@ app.delete('/api/mentors/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     
-    if (useInMemory) {
-      const deleted = deleteInMemoryMentor(id);
-      if (!deleted) return res.status(404).json({ message: 'Not found' });
-      res.json({ ok: true });
-    } else {
-      await Mentor.findByIdAndDelete(id);
-      res.json({ ok: true });
-    }
+    // MongoDB only
+    await Mentor.findByIdAndDelete(id);
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ message: 'Failed to delete mentor' });
   }
 });
 
-// Public: list resolved questions with mentor name
+// Public: list resolved questions with mentor name - MongoDB only
 app.get('/api/public/resolved', async (req, res) => {
   try {
-    if (useInMemory) {
-      const resolvedQuestions = getInMemoryQuestions()
-        .filter(q => q.status === 'Resolved')
-        .sort((a, b) => new Date(b.answeredAt || 0) - new Date(a.answeredAt || 0))
-        .slice(0, 20);
-      
-      const mapped = resolvedQuestions.map((q) => {
-        const mentor = getInMemoryMentors().find(m => m._id === q.answeredByMentorId);
-        return {
-          id: q._id,
-          subject: q.subject,
-          question: q.question,
-          answerText: q.answerText,
-          answeredAt: q.answeredAt,
-          mentorName: mentor?.name || null,
-          mentorSubject: mentor?.subject || null,
-        };
-      });
-      res.json(mapped);
-    } else {
-      const list = await Question.find({ status: 'Resolved' })
-        .sort({ answeredAt: -1 })
-        .limit(20)
-        .populate({ path: 'answeredByMentorId', select: 'name subject' })
-        .lean();
-      const mapped = list.map((q) => ({
-        id: q._id,
-        subject: q.subject,
-        question: q.question,
-        answerText: q.answerText,
-        answeredAt: q.answeredAt,
-        mentorName: q.answeredByMentorId?.name || null,
-        mentorSubject: q.answeredByMentorId?.subject || null,
-      }));
-      res.json(mapped);
-    }
+    const list = await Question.find({ status: 'Resolved' })
+      .sort({ answeredAt: -1 })
+      .limit(20)
+      .populate({ path: 'answeredByMentorId', select: 'name subject' })
+      .lean();
+    const mapped = list.map((q) => ({
+      id: q._id,
+      subject: q.subject,
+      question: q.question,
+      answerText: q.answerText,
+      answeredAt: q.answeredAt,
+      mentorName: q.answeredByMentorId?.name || null,
+      mentorSubject: q.answeredByMentorId?.subject || null,
+    }));
+    res.json(mapped);
   } catch (e) {
     res.status(500).json({ message: 'Failed to load resolved answers' });
   }

@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
-const { validateContactField } = require('./middleware/contactValidation');
 require('dotenv').config();
 
 const app = express();
@@ -307,25 +306,22 @@ async function seedMentors() {
 }
 
 // Public: student submits a new question
-app.post('/api/questions', validateContactField, async (req, res) => {
+app.post('/api/questions', async (req, res) => {
   try {
-    const { studentName, studentEmail, contact, contactType, subject, question, assignedMentorId } = req.body || {};
+    const { studentName, contact, subject, question, assignedMentorId } = req.body || {};
     if (!studentName || !subject || !question) {
       return res.status(400).json({ message: 'studentName, subject and question are required' });
     }
     
     console.log('📝 Received new question submission:');
     console.log(`   Student: ${studentName}`);
-    console.log(`   Contact: ${contact} (${contactType})`);
     console.log(`   Subject: ${subject}`);
     
     if (useInMemory) {
       console.log('⚠️  Using in-memory storage (MongoDB not connected)');
       const doc = addInMemoryQuestion({
         studentName,
-        studentEmail,
         contact,
-        contactType,
         subject,
         question,
         status: assignedMentorId ? 'Assigned' : 'New',
@@ -335,9 +331,7 @@ app.post('/api/questions', validateContactField, async (req, res) => {
     } else {
       const doc = await Question.create({
         studentName,
-        studentEmail,
         contact,
-        contactType,
         subject,
         question,
         status: assignedMentorId ? 'Assigned' : 'New',

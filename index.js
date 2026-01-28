@@ -9,7 +9,16 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+// CORS Configuration - permissive for development and production  
+const corsOptions = {
+  origin: true, // Allow all origins
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // MongoDB connection - require production URI; fallback to local only for development
@@ -29,13 +38,6 @@ mongoose.connection.on('connecting', () => {
   console.log('🔄 Connecting to MongoDB...');
 });
 
-mongoose.connection.on('connected', () => {
-  console.log('✅ MongoDB Connected');
-  console.log(`   URI: ${MONGODB_URI}`);
-  console.log(`   Database: niyzo`);
-  console.log(`   Status: Ready for data operations`);
-});
-
 mongoose.connection.on('error', (err) => {
   console.error('❌ MongoDB connection error:', err.message);
 });
@@ -53,12 +55,16 @@ mongoose
   })
   .then(() => {
     useInMemory = false;
+    console.log('✅ MongoDB Connected');
+    console.log(`   URI: ${MONGODB_URI}`);
+    console.log(`   Database: niyzo`);
+    console.log(`   Status: Ready for data operations`);
   })
   .catch((err) => {
     console.error('❌ MongoDB connection failed:', err.message);
     console.error('   Tried URI:', MONGODB_URI);
-    console.error('   In production, ensure `MONGODB_URI` points to a reachable, authenticated MongoDB instance and that network rules/VPC peering allow access from this host.');
-    process.exit(1);
+    console.warn('   ⚠️  Continuing with in-memory storage instead...');
+    useInMemory = true;
   });
 
 // Schemas and Models
@@ -460,7 +466,9 @@ app.get('/api/health', async (req, res) => {
 app.listen(PORT, async () => {
   try {
     await seedMentors();
-  } catch {}
+  } catch (err) {
+    console.error('❌ Error during seeding:', err.message);
+  }
   console.log('\n' + '='.repeat(60));
   console.log('🚀 API SERVER STARTED');
   console.log('='.repeat(60));
@@ -468,6 +476,16 @@ app.listen(PORT, async () => {
   console.log(`📊 Database: MongoDB (niyzo)`);
   console.log(`📬 Connection: ${MONGODB_URI}`);
   console.log('='.repeat(60) + '\n');
+});
+
+// Global error handling
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  process.exit(1);
 });
 
 // Mentor CRUD

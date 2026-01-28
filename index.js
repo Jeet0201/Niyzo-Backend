@@ -23,7 +23,7 @@ app.use(express.json());
 
 // MongoDB connection - REQUIRED for all environments (production-grade enforcement)
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const MONGODB_URI = process.env.MONGODB_URI || (NODE_ENV === 'development' ? 'mongodb://localhost:27017/niyzo' : null);
+const MONGODB_URI = process.env.MONGODB_URI;
 let mongoConnected = false;
 
 if (!MONGODB_URI) {
@@ -31,21 +31,36 @@ if (!MONGODB_URI) {
   console.error('❌ CRITICAL: MONGODB_URI environment variable is not set');
   console.error('═══════════════════════════════════════════════════════════════════');
   console.error('');
-  console.error('PRODUCTION ENVIRONMENT DETECTED - Database is REQUIRED');
-  console.error('');
-  console.error('You must set MONGODB_URI before the server can start.');
-  console.error('');
-  console.error('Example for MongoDB Atlas (Cloud):');
-  console.error('  MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/niyzo?retryWrites=true&w=majority');
-  console.error('');
-  console.error('Setup Instructions:');
-  console.error('  1. Sign up for MongoDB Atlas: https://www.mongodb.com/cloud/atlas');
-  console.error('  2. Create a free cluster');
-  console.error('  3. Get your connection string');
-  console.error('  4. Set MONGODB_URI in your platform environment variables (Render.com):');
-  console.error('     - Go to Settings > Environment Variables');
-  console.error('     - Add MONGODB_URI with your connection string');
-  console.error('  5. Redeploy your application');
+  if (NODE_ENV === 'production') {
+    console.error('PRODUCTION ENVIRONMENT DETECTED - Cloud Database is REQUIRED');
+    console.error('');
+    console.error('You must set MONGODB_URI before the server can start.');
+    console.error('');
+    console.error('Example for MongoDB Atlas (Cloud):');
+    console.error('  MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/niyzo?retryWrites=true&w=majority');
+    console.error('');
+    console.error('Setup Instructions:');
+    console.error('  1. Sign up for MongoDB Atlas: https://www.mongodb.com/cloud/atlas');
+    console.error('  2. Create a free cluster');
+    console.error('  3. Get your connection string');
+    console.error('  4. Set MONGODB_URI in your platform environment variables (Render.com):');
+    console.error('     - Go to Settings > Environment Variables');
+    console.error('     - Add MONGODB_URI with your connection string');
+    console.error('  5. Redeploy your application');
+  } else {
+    console.error('DEVELOPMENT ENVIRONMENT - Local MongoDB is REQUIRED');
+    console.error('');
+    console.error('You must set MONGODB_URI before the server can start.');
+    console.error('');
+    console.error('Example for local MongoDB:');
+    console.error('  MONGODB_URI=mongodb://localhost:27017/niyzo');
+    console.error('');
+    console.error('Setup Instructions:');
+    console.error('  1. Install MongoDB locally: https://www.mongodb.com/try/download/community');
+    console.error('  2. Start MongoDB service');
+    console.error('  3. Set MONGODB_URI in your .env file');
+    console.error('  4. Restart the server');
+  }
   console.error('');
   console.error('═══════════════════════════════════════════════════════════════════');
   process.exit(1);

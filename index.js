@@ -13,9 +13,15 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
-// MongoDB connection - Local MongoDB only
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/niyzo';
+// MongoDB connection - require production URI; fallback to local only for development
+const MONGODB_URI = process.env.MONGODB_URI ?? (process.env.NODE_ENV === 'production' ? null : 'mongodb://localhost:27017/niyzo');
 let useInMemory = false;
+
+if (!MONGODB_URI) {
+  console.error('❌ MONGODB_URI is not set. In production you must provide a network-accessible MongoDB URI (set MONGODB_URI environment variable).');
+  console.error('   Example: mongodb+srv://<user>:<pass>@cluster0.example.mongodb.net/mydb?retryWrites=true&w=majority');
+  process.exit(1);
+}
 
 mongoose.set('strictQuery', true);
 
@@ -51,11 +57,9 @@ mongoose
   })
   .catch((err) => {
     console.error('❌ MongoDB connection failed:', err.message);
-    console.log('⚠️  ERROR: Cannot connect to local MongoDB at', MONGODB_URI);
-    console.log('   Make sure MongoDB is running:');
-    console.log('   Windows: mongod');
-    console.log('   Or: net start MongoDB');
-    process.exit(1);  // Exit if local MongoDB is not available
+    console.error('   Tried URI:', MONGODB_URI);
+    console.error('   In production, ensure `MONGODB_URI` points to a reachable, authenticated MongoDB instance and that network rules/VPC peering allow access from this host.');
+    process.exit(1);
   });
 
 // Schemas and Models
